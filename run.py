@@ -14,6 +14,34 @@ warnings.filterwarnings("ignore", message=".*return_token_timestamps.*")
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
+
+"""
+   載入 Breeze ASR 25 模型並回傳模型物件和錯誤資訊。
+   若成功，回傳 (asr_pipeline, None)。
+   若失敗，回傳 (None, 錯誤訊息)。
+"""
+def load_model(name):
+    global processor, model, asr_pipeline
+    try:
+        processor = WhisperProcessor.from_pretrained(name)
+        model = WhisperForConditionalGeneration.from_pretrained(name)
+
+        # 檢查是否有 CUDA
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = model.to(device).eval()
+        
+        # 建立 pipeline
+        asr_pipeline = AutomaticSpeechRecognitionPipeline(
+            model=model,
+            tokenizer=processor.tokenizer,
+            feature_extractor=processor.feature_extractor,
+            chunk_length_s=0,
+            device=device
+        )
+        return asr_pipeline, None
+    except Exception as e:
+        return None, f"❌ 模型載入失敗: {str(e)}"
+
 def transcribe_audio(file_name):
     # 1. Load audio
     waveform, sample_rate = torchaudio.load(file_name)          
@@ -28,17 +56,12 @@ def transcribe_audio(file_name):
         waveform = resampler(torch.tensor(waveform)).numpy()
         sample_rate = 16000
 
-    # 3. Load Model
-    processor = WhisperProcessor.from_pretrained("MediaTek-Research/Breeze-ASR-25")
-    model = WhisperForConditionalGeneration.from_pretrained("MediaTek-Research/Breeze-ASR-25").to("cpu").eval()   #cuda
+    # 3. Load Model、# 4. Build Pipeline
+    asr_pipeline, error = load_model("breezecoder/breeze-asr-25-v1.0")
+    if error:
+        print(error)
+        return
 
-    # 4. Build Pipeline
-    asr_pipeline = AutomaticSpeechRecognitionPipeline(
-        model=model,
-        tokenizer=processor.tokenizer,
-        feature_extractor=processor.feature_extractor,
-        chunk_length_s=0
-    )
 
     # 5. Inference
     output = asr_pipeline(waveform, return_timestamps=True)  
